@@ -1,0 +1,14 @@
+node_modules/
+/dist/
+/blender_src/
+*.blend
+*.blend[0-9]*
+.uruk-work/
+screenshots/
+outputs/
+test-results/
+playwright-report/
+__pycache__/
+.env
+.env.*
+/AGENTS.md

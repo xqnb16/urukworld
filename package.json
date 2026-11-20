@@ -1,0 +1,19 @@
+{
+  "name": "uruk-city-walk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "meshoptimizer": "0.25.0",
+    "three": "0.181.2",
+    "three-mesh-bvh": "0.9.5"
+  },
+  "devDependencies": {
+    "vite": "8.3.8"
+  }
+}

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b1d32">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath fill='%23d9b77c' d='M20 1 23 15 33 7 25 17 39 20 25 23 33 33 23 25 20 39 17 25 7 33 15 23 1 20 15 17 7 7 17 15Z'/%3E%3C/svg%3E">
+    <meta name="description" content="沿运河步入乌鲁克，在泥砖街巷、集市与白神庙之间自由漫游。">
+    <title>乌鲁克 · 永恒的城邦</title>
+  </head>
+  <body>
+    <main class="world" aria-label="乌鲁克城邦漫游">
+      <canvas id="view" tabindex="0" aria-label="乌鲁克三维场景"></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+      <div id="travel-curtain" class="travel-curtain" aria-hidden="true"></div>
+
+      <section id="hud" class="hud" aria-label="漫游控制" hidden>
+        
+<header class="world-head">
+  <div class="location plate">
+    <span class="location-sigil"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 0l3.7 15.1L41 7l-8.1 13.3L48 24l-15.1 3.7L41 41l-13.3-8.1L24 48l-3.7-15.1L7 41l8.1-13.3L0 24l15.1-3.7L7 7l13.3 8.1Z" fill="currentColor"/></svg></span>
+    <div class="location-text"><span id="district-en">OUTER MARKET</span><strong id="district-cn">城外集市</strong></div>
+    <span class="bearing" aria-label="朝向"><b id="direction">北</b><span id="degrees">000°</span></span>
+  </div>
+  <div class="sundial plate">
+    <button id="day-night" type="button" class="dial-sigil" aria-label="切换为夜间" aria-pressed="false" title="昼夜切换 · N"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.3v3m0 13.4v3M2.3 12h3m13.4 0h3M5.2 5.2l2.1 2.1m9.4 9.4 2.1 2.1m0-13.6-2.1 2.1m-9.4 9.4-2.1 2.1"/></svg></button>
+    <div class="dial-body">
+      <div class="dial-caption"><label for="sundial">日晷</label><output id="time-label" for="sundial">正午</output></div>
+      <input id="sundial" type="range" min="0" max="2" step="0.01" value="0" aria-valuetext="正午">
+      <div class="dial-marks" aria-hidden="true"><span>正午</span><span>晚霞</span><span>星夜</span></div>
+    </div>
+  </div>
+    <details class="landmark-menu plate" id="landmark-menu">
+    <summary aria-label="打开地标传送"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 2 2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4L12 2Z"/><circle cx="12" cy="12" r="2.2"/></svg><span>地标传送</span><i aria-hidden="true"></i></summary>
+    <nav class="landmark-list" aria-label="地标快速前往">
+      <section aria-labelledby="landmark-city"><h2 id="landmark-city">乌鲁克城内</h2>
+        <button type="button" data-travel="gate">双塔城门</button><button type="button" data-travel="bridge">高拱桥 · 西岸市集</button>
+        <button type="button" data-travel="quay">运河码头</button><button type="button" data-travel="beerhouse">西岸大麦啤酒屋</button>
+        <button type="button" data-travel="scribe">泥板书吏工坊</button><button type="button" data-travel="courtyard">西岸庭院屋</button>
+        <button type="button" data-travel="temple">白神庙露台</button>
+      </section>
+      <section aria-labelledby="landmark-wilds"><h2 id="landmark-wilds">城郊与河谷</h2>
+        <button type="button" data-travel="farm">城郊大麦村落</button><button type="button" data-travel="farmhouse">城郊农舍</button>
+        <button type="button" data-travel="fishing">幼发拉底芦苇渔村</button><button type="button" data-travel="oasis">西侧商路绿洲</button>
+        <button type="button" data-travel="northbridge">北侧三拱石桥</button><button type="button" data-travel="ziggurat">北麓古神塔</button>
+      </section>
+    </nav>
+  </details>
+</header>
+<div class="toolbar plate" aria-label="漫游设置">
+            <button id="audio-toggle" class="tool" type="button" aria-label="静音" aria-pressed="false" title="切换空间声音 · M">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="audio-wave" d="M16 9c1.4 1.6 1.4 4.4 0 6m2.5-8c2.6 2.6 2.6 7.4 0 10"/><path class="audio-off" d="M16 9l5 6m0-6-5 6"/></svg>
+              <span>声景</span>
+            </button>
+            <button id="camera-mode" class="tool" type="button" aria-label="切换为越肩视角" aria-pressed="false" title="切换视角 · V">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.8 12s3.8-5.8 9.2-5.8 9.2 5.8 9.2 5.8-3.8 5.8-9.2 5.8S2.8 12 2.8 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              <span>第一人称</span>
+            </button>
+            <button id="pointer-lock" class="tool icon-only" type="button" aria-label="锁定鼠标视角" aria-pressed="false" title="锁定鼠标 · Q">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8.4 10V7.4a3.6 3.6 0 1 1 7.2 0V10M6.3 10h11.4v9.3H6.3zM12 13.5v2.4"/></svg>
+            </button>
+          </div>
+
+
+        <div id="reticle" class="reticle" aria-hidden="true"></div>
+        <button id="interact" class="interaction plate" type="button" hidden>
+          <kbd>E</kbd><span>与 <strong id="nearby-name"></strong> 交谈</span>
+        </button>
+
+        <div class="movement-guide" aria-label="快捷键">
+          <span><kbd>WASD</kbd> / <kbd>方向键</kbd> 行走</span>
+          <span><kbd>Shift</kbd> 奔跑</span>
+          <span><kbd>Space</kbd> 跳跃</span>
+          <span class="mouse-guide"><kbd>移动鼠标</kbd> 转动视角 / <kbd>ESC</kbd> 呼出鼠标</span>
+          <span class="mouse-fallback"><kbd>拖拽</kbd> 转动视角</span>
+        </div>
+
+        <div class="touch-controls" aria-label="触屏移动">
+          <button class="touch-forward" type="button" data-key="KeyW" aria-label="向前">↑</button>
+          <button class="touch-left" type="button" data-key="KeyA" aria-label="向左">←</button>
+          <button class="touch-back" type="button" data-key="KeyS" aria-label="向后">↓</button>
+          <button class="touch-right" type="button" data-key="KeyD" aria-label="向右">→</button>
+          <button class="touch-jump" id="jump-touch" type="button" aria-label="跳跃">跳</button>
+        </div>
+      </section>
+
+      
+<section id="entry" class="entry" aria-labelledby="entry-title">
+  <div class="entry-border" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="tablet tablet-top" aria-hidden="true">𒀭 𒆠 𒌷 𒈗 𒂍 𒉺 𒀀 𒁹 𒆠</div>
+  <div class="tablet tablet-bottom" aria-hidden="true">𒆠 𒀀 𒈠 𒀭 𒉺 𒌷 𒆠 𒈗 𒂍</div>
+  <div class="entry-content">
+    <div class="entry-mark" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 0l3.7 15.1L41 7l-8.1 13.3L48 24l-15.1 3.7L41 41l-13.3-8.1L24 48l-3.7-15.1L7 41l8.1-13.3L0 24l15.1-3.7L7 7l13.3 8.1Z" fill="currentColor"/></svg></div>
+    <div class="entry-latin" aria-hidden="true">URUK</div>
+    <h1 id="entry-title" aria-label="乌鲁克 · 永恒的城邦"><span>乌鲁克</span><small>永恒的城邦</small></h1>
+    <div class="entry-separator" aria-hidden="true"><i></i><b></b><i></i></div>
+    <button id="begin" class="begin" type="button" disabled><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 0l3.7 15.1L41 7l-8.1 13.3L48 24l-15.1 3.7L41 41l-13.3-8.1L24 48l-3.7-15.1L7 41l8.1-13.3L0 24l15.1-3.7L7 7l13.3 8.1Z" fill="currentColor"/></svg><span id="begin-label">读取城邦</span><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 0l3.7 15.1L41 7l-8.1 13.3L48 24l-15.1 3.7L41 41l-13.3-8.1L24 48l-3.7-15.1L7 41l8.1-13.3L0 24l15.1-3.7L7 7l13.3 8.1Z" fill="currentColor"/></svg></button>
+    <div id="entry-progress" class="entry-progress" role="progressbar" aria-label="场景加载" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+    <p id="load-status" class="load-status" role="status">正在读取城邦 · 0%</p>
+  </div>
+</section>
+<section id="dialogue" class="dialogue" role="dialog" aria-modal="true" aria-labelledby="speaker-name" hidden>
+        <div class="portrait-frame" aria-hidden="true"><span class="portrait-seal"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 0l3.7 15.1L41 7l-8.1 13.3L48 24l-15.1 3.7L41 41l-13.3-8.1L24 48l-3.7-15.1L7 41l8.1-13.3L0 24l15.1-3.7L7 7l13.3 8.1Z" fill="currentColor"/></svg></span><img id="portrait" alt=""></div>
+        <div class="dialogue-body">
+          <div class="speaker"><span class="speaker-mark" aria-hidden="true"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 0l3.7 15.1L41 7l-8.1 13.3L48 24l-15.1 3.7L41 41l-13.3-8.1L24 48l-3.7-15.1L7 41l8.1-13.3L0 24l15.1-3.7L7 7l13.3 8.1Z" fill="currentColor"/></svg></span><div>
+            <h2 id="speaker-name"></h2>
+            <span id="speaker-role"></span></div>
+          </div>
+          <p id="speech" aria-hidden="true" title="点击显示完整台词"></p>
+          <p id="accessible-speech" class="sr-only" aria-live="polite"></p>
+          <div id="dialogue-options" class="dialogue-options" aria-label="对话选项"></div>
+        </div>
+        <button id="close-dialogue" class="close-dialogue" type="button" aria-label="结束交谈" title="结束交谈 · Esc">×</button>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
