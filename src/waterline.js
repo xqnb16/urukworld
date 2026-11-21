@@ -10,7 +10,7 @@ const piers = /^(?:wild_village_wood_pier_|prop_marsh_additional_timber_moorings
 
 function waterSurvey(city,wild) {
   const surfaces=[];
-  for (const root of [city,wild]) {
+  for (const root of [city,wild].filter(Boolean)) {
     root.traverse(object => {
       if (!object.isMesh || !waterName.test(object.name)) return;
       object.geometry.boundsTree ??= new MeshBVH(object.geometry);
@@ -147,7 +147,7 @@ function boatHollows(wild) {
 
 export function createWaterline(city,wild,scene,time) {
   const waterHeight=waterSurvey(city,wild);
-  const boatLifts=settleBoats(wild,waterHeight);
+  const boatLifts=wild ? settleBoats(wild,waterHeight) : [];
   const sectors=new Map(), samples=new Map();
   function strip(x1,z1,x2,z2,width,opacity) {
     const dx=x2-x1,dz=z2-z1, len=Math.hypot(dx,dz);
@@ -168,7 +168,7 @@ export function createWaterline(city,wild,scene,time) {
     uv.push(0,0,0,1,1,0,1,0,0,1,1,1);
     for(let i=0;i<6;i++) strength.push(opacity);
   }
-  for(const root of [city,wild]) {
+  for(const root of [city,wild].filter(Boolean)) {
     root.traverse(mesh=>{
       if (!mesh.isMesh) return;
       const name=mesh.parent.isGroup?mesh.parent.name:mesh.name;
@@ -224,7 +224,7 @@ export function createWaterline(city,wild,scene,time) {
     patches.push(foam);
     scene.add(foam);
   }
-  return {boatLifts,boatMask:boatHollows(wild),update(darkness,camera){
+  return {boatLifts,boatMask:wild ? boatHollows(wild) : null,update(darkness,camera){
     night.value=darkness;
     for(const foam of patches) {
       const sphere=foam.geometry.boundingSphere;

@@ -81,9 +81,15 @@ function attributeDefaults(geometry,height=0,foundation=0) {
 function cityGeometry(mesh,name) {
   const source=mesh.geometry;
   const geometry=new THREE.BufferGeometry();
-  for (const key of ["position","color","uv"]) {
+  for (const key of ["color","uv"]) {
     if (source.hasAttribute(key)) geometry.setAttribute(key,source.attributes[key].clone());
   }
+  const sourcePosition=source.getAttribute("position");
+  if (sourcePosition.normalized || sourcePosition.isInterleavedBufferAttribute) {
+    const positions=new THREE.Float32BufferAttribute(sourcePosition.count*3,3);
+    for (let i=0;i<sourcePosition.count;i++) positions.setXYZ(i,sourcePosition.getX(i),sourcePosition.getY(i),sourcePosition.getZ(i));
+    geometry.setAttribute("position",positions);
+  } else geometry.setAttribute("position",sourcePosition.clone());
   const sourceNormal=source.getAttribute("normal");
   if (sourceNormal && (sourceNormal.normalized || sourceNormal.isInterleavedBufferAttribute)) {
     const normals=new THREE.Float32BufferAttribute(sourceNormal.count*3,3);
@@ -142,6 +148,7 @@ export async function makeBatches(city,wild,scene,materialFor,water,distantWater
   }
 
   for (const [root,inWild] of [[city,false],[wild,true]]) {
+    if (!root) continue;
     root.traverse(mesh=>{
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
       const parent=owner(mesh,root), id=parent.name||mesh.name;
@@ -166,6 +173,13 @@ export async function makeBatches(city,wild,scene,materialFor,water,distantWater
           /^boat_reed_cargo_\d{2}$/.test(mesh.parent?.parent?.name);
       const material=toon(mesh.material,hull);
       const geometry=mesh.geometry;
+      if (mesh.isInstancedMesh) {
+        mesh.material=material;
+        mesh.computeBoundingSphere();
+        mesh.castShadow=!fineScenery.test(name)&&!noSmallShadow.test(name)&&/palm.*trunk/.test(name);
+        mesh.receiveShadow=true;
+        return;
+      }
       if (terrainName.test(id)) {
         for (const piece of spatialPieces(mesh,108)) {
           register(new THREE.Mesh(piece,material),{id:"alluvial_terrain_sector",cast:false,detailDistance:1200,lodDistance:72,lighterLOD:true});

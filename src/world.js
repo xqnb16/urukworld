@@ -1,6 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { MeshoptDecoder } from "meshoptimizer";
+import { loadModel } from "./modelLoader.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { makePigments, pigmentFor } from "./pigments.js";
@@ -122,7 +121,7 @@ function makeMaterials(pigments) {
   };
 }
 
-function fitSprite(image, aspect) {
+function fitSprite(image, aspect, compact) {
   const sample = document.createElement("canvas");
   const cap = Math.min(1, 1000 / Math.max(image.naturalWidth, image.naturalHeight));
   sample.width = Math.max(1, Math.round(image.naturalWidth * cap));
@@ -148,7 +147,7 @@ function fitSprite(image, aspect) {
   const regionWidth = right - left + 1;
   const regionHeight = bottom - top + 1;
   const texture = document.createElement("canvas");
-  texture.height = THREE.MathUtils.clamp(Math.round(image.naturalHeight * regionHeight / sample.height), 16, 1536);
+  texture.height = THREE.MathUtils.clamp(Math.round(image.naturalHeight * regionHeight / sample.height), 16, compact ? 768 : 1280);
   texture.width = Math.round(texture.height * aspect);
   const scale = Math.min((texture.width - 6) / regionWidth, (texture.height - 5) / regionHeight);
   const width = regionWidth * scale;
@@ -159,19 +158,29 @@ function fitSprite(image, aspect) {
   return texture;
 }
 
-function loadSprites(npcs, scene) {
+function loadSprites(npcs, scene, compact, includeAvatar = true) {
   const loader = new THREE.TextureLoader();
   const textures = new Map();
   const missing = new Set();
+  async function fetchSprite(file) {
+    let timer;
+    try {
+      return await Promise.race([loader.loadAsync(spriteURL(file)),new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(new Error("立绘下载超时")),24_000);
+      })]);
+    } catch (error) {
+      throw new Error(`角色立绘加载失败（${file}）：${error.message || "资源无法读取"}`);
+    } finally { clearTimeout(timer); }
+  }
   function texture(file, aspect, flipY = false) {
     const key = file+":"+aspect+":"+flipY;
     if (!textures.has(key)) {
-      textures.set(key, loader.loadAsync(spriteURL(file)).catch((error) => {
+      textures.set(key, fetchSprite(file).catch((error) => {
         if (!file.startsWith("sumer/")) throw error;
         missing.add(file);
-        return loader.loadAsync(spriteURL("citizen_01"));
+        return fetchSprite("citizen_01");
       }).then((asset) => {
-        asset.image = fitSprite(asset.image, aspect);
+        asset.image = fitSprite(asset.image, aspect, compact);
         asset.colorSpace = THREE.SRGBColorSpace;
         asset.flipY = flipY;
         asset.minFilter = THREE.LinearMipmapLinearFilter;
@@ -207,7 +216,7 @@ function loadSprites(npcs, scene) {
       npc.file ??= king ? "gilgamesh" : `citizen_0${(index - 1) % 4 + 1}`;
       npc.mesh.material = material(await texture(npc.file, npc.aspect ?? (king ? 1.1 / 1.9 : 0.9 / 1.75),npc.flipY??false));
     }),
-    Promise.all(poses.map(async ({file,width,height,lift}) => {
+    includeAvatar ? Promise.all(poses.map(async ({file,width,height,lift}) => {
       const geometry = new THREE.PlaneGeometry(width, height);
       geometry.translate(0, height*.5+lift, 0);
       const avatar = new THREE.Mesh(geometry, material(await texture(file,width/height,true)));
@@ -215,7 +224,7 @@ function loadSprites(npcs, scene) {
       avatar.name = file + "_shoulder_view";
       scene.add(avatar);
       return avatar;
-    })),
+    })) : [],
   ]).then((result) => ({avatars:result.at(-1), missing}));
 }
 
@@ -237,9 +246,14 @@ function filterTextures(scene, pigments, anisotropy) {
 }
 
 export async function createWorld(canvas, onProgress) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
-  const compact = matchMedia("(pointer: coarse)").matches;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const prefersCompact = matchMedia("(pointer: coarse)").matches || (navigator.deviceMemory ?? 8) <= 4;
+  const context = canvas.getContext("webgl2", { antialias: false, alpha: false,
+    powerPreference: prefersCompact ? "low-power" : "high-performance" });
+  if (!context) throw new Error("此浏览器无法启动 WebGL 2，请开启硬件加速或换用其他浏览器");
+  const renderer = new THREE.WebGLRenderer({ canvas, context, antialias: false });
+  const compact = prefersCompact || renderer.capabilities.maxTextureSize <= 4096;
+  const pixelLimit = compact ? 1 : 1.5;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelLimit));
   renderer.info.autoReset=false;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;
@@ -253,11 +267,11 @@ export async function createWorld(canvas, onProgress) {
 
   const camera = new THREE.PerspectiveCamera(67, 1, 0.115, 1380);
   const gl = renderer.getContext();
-  const hdr = renderer.extensions.has("EXT_color_buffer_float");
+  const hdr = !compact && renderer.extensions.has("EXT_color_buffer_float");
   const format = hdr ? gl.RGBA16F : gl.RGBA8;
   const colorSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, format, gl.SAMPLES);
   const depthSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, gl.SAMPLES);
-  const samples = [4, 2].find(value => colorSamples.includes(value) && depthSamples.includes(value)) ?? 0;
+  const samples = (compact ? [] : [4, 2]).find(value => colorSamples.includes(value) && depthSamples.includes(value)) ?? 0;
   const mainTarget = new THREE.WebGLRenderTarget(1, 1, {
     type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
     depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
@@ -268,7 +282,7 @@ export async function createWorld(canvas, onProgress) {
   composer.addPass(new InkContours(camera));
   const light = new THREE.DirectionalLight("#fff2dc", 1.92);
   light.castShadow = true;
-  const shadowSize = Math.min(renderer.capabilities.maxTextureSize, compact ? 1536 : 2048);
+  const shadowSize = Math.min(renderer.capabilities.maxTextureSize, compact ? 768 : 2048);
   light.shadow.mapSize.set(shadowSize, shadowSize);
   light.shadow.camera.left = light.shadow.camera.bottom = -53;
   light.shadow.camera.right = light.shadow.camera.top = 53;
@@ -283,7 +297,7 @@ export async function createWorld(canvas, onProgress) {
   scene.add(ambient);
   const pointLights = Array.from({ length: 3 }, (_, index) => {
     const point = new THREE.PointLight("#ffb56a", 0, 9, 2);
-    if (index === 0) {
+    if (index === 0 && !compact) {
       point.castShadow = true;
       point.shadow.autoUpdate = false;
       point.shadow.mapSize.set(256, 256);
@@ -297,87 +311,136 @@ export async function createWorld(canvas, onProgress) {
     return point;
   });
 
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const files = ["uruk_city.glb", "mesopotamia_wilds.glb"];
-  const downloads = files.map(file => ({ file, loaded: 0, size: __URUK_MODEL_BYTES__[file] }));
-  const allBytes = downloads.reduce((sum, item) => sum + item.size, 0);
-  const reportDownloads = () => {
-    const completedBytes = downloads.reduce((sum, item) => sum + item.loaded, 0);
-    onProgress(Math.round(completedBytes * 88 / allBytes));
-  };
-  const [city, wild] = await Promise.all(downloads.map(item =>
-    loader.loadAsync(`${base}models/${item.file}`, ({ loaded }) => {
-      item.loaded = Math.min(item.size, loaded);
-      reportDownloads();
-    }).then(model => {
-      item.loaded = item.size;
-      reportDownloads();
-      return model.scene;
-    })));
-  onProgress(90);
-  scene.add(city,wild);
-  city.updateMatrixWorld(true);
-  wild.updateMatrixWorld(true);
-  const walkMeshes=[],solidMeshes=[],npcs=[],soundAnchors=[],nightAnchors=[];
+  const city = await loadModel("uruk_city.glb", onProgress);
+  scene.add(city);
+  const npcs=[], soundAnchors=[], nightAnchors=[];
   const time={value:0};
   const water=createWater(time), distantWater=createWater(time,true);
-  for (const root of [city,wild]) root.traverse(node=>{
-    const {name}=node;
-    if (name.startsWith("col_walk_")||name.startsWith("col_solid_")) {
-      node.visible=false;
-      node.traverse(mesh=>{
-        if (!mesh.isMesh) return;
-        if (name.startsWith("col_walk_")) walkMeshes.push({name,mesh});
-        else solidMeshes.push(mesh);
-      });
-    } else if (name.startsWith("npc_") && node.userData.role==="billboard_sprite_anchor") {
-      const mesh=node.isMesh?node:node.children.find(child=>child.isMesh);
-      if (!mesh) throw Error("Missing NPC face "+name);
-      const point=node.getWorldPosition(new THREE.Vector3());
-      const npc={name,node,mesh,point};
-      configureResident(npc);
-      npcs.push(npc);
-    } else if (name.startsWith("snd_")) {
-      soundAnchors.push({...node.userData,position:node.getWorldPosition(new THREE.Vector3())});
-    } else if (name.startsWith("light_") && node.userData.kind==="point") {
-      nightAnchors.push({...node.userData,name,position:node.getWorldPosition(new THREE.Vector3())});
-    }
-  });
-  const walkCount=new Set(walkMeshes.map(({name})=>name)).size;
-  if (walkCount!==142) throw Error("Expected 142 authored walkable meshes, found "+walkCount);
-  const walk=createWalkWorld(walkMeshes,solidMeshes);
-  const {floor,occupied,blockers}=walk;
-  const regions=createRegions(walk.boxes,walk.floorPlan);
-  const spawn=city.getObjectByName("spawn_exterior_gate_01");
-  if (!spawn) throw Error("Uruk spawn point missing.");
-  const maxAnisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);
-  const textures=makePigments(maxAnisotropy);
+  const maxAnisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),compact ? 4 : 8);
+  const textures=makePigments(maxAnisotropy,compact);
   const pigment=makeMaterials(textures);
-  const waterline=createWaterline(city,wild,scene,time);
-  distantWater.setBoatMask(waterline.boatMask);
-  const batch=await makeBatches(city,wild,scene,pigment,water.material,distantWater.material);
-  const supplementalFires=[
-    ["oven_east",29,.25,48.91,.44,.38],["oven_west",-28,.25,60.92,.44,.38],["oven_pen",-42,.27,54.90,.44,.38],
-    ["oven_courtyard",-39.31,.25,-10.35,.30,.31],
-    ...[0,1,2,3].map(i=>["ziggurat_brazier_"+i,-24+2.93*Math.cos(i*Math.PI/2),131.31,-356.6-2.93*Math.sin(i*Math.PI/2),.68,.70]),
-  ];
-  for (const [name,bounds] of batch.flames) {
-    if (!name.startsWith("oil_lamp_")||bounds.isEmpty()) continue;
-    const center=bounds.getCenter(new THREE.Vector3());
-    nightAnchors.push({name,position:center,radius_m:4.2,luminous_candela:12,color_hex:"#ffbd79"});
+  const layers=[];
+  const missing=new Set();
+  let walk, activeRegions, walkCount=0, pendingWild=null;
+  const regions={
+    label: point => activeRegions.label(point),
+    sense: point => activeRegions.sense(point),
+  };
+
+  function survey(root, expected) {
+    root.updateMatrixWorld(true);
+    const data={walks:[],solids:[],npcs:[],sounds:[],lights:[]};
+    root.traverse(node=>{
+      const {name}=node;
+      if (name.startsWith("col_walk_")||name.startsWith("col_solid_")) {
+        node.visible=false;
+        node.traverse(mesh=>{
+          if (!mesh.isMesh) return;
+          if (name.startsWith("col_walk_")) data.walks.push({name,mesh});
+          else data.solids.push(mesh);
+        });
+      } else if (name.startsWith("npc_") && node.userData.role==="billboard_sprite_anchor") {
+        const mesh=node.isMesh?node:node.children.find(child=>child.isMesh);
+        if (!mesh) throw new Error("模型缺少角色锚点 "+name);
+        const npc={name,node,mesh,point:node.getWorldPosition(new THREE.Vector3())};
+        configureResident(npc);
+        data.npcs.push(npc);
+      } else if (name.startsWith("snd_")) {
+        data.sounds.push({...node.userData,position:node.getWorldPosition(new THREE.Vector3())});
+      } else if (name.startsWith("light_") && node.userData.kind==="point") {
+        data.lights.push({...node.userData,name,position:node.getWorldPosition(new THREE.Vector3())});
+      }
+    });
+    const count=new Set(data.walks.map(({name})=>name)).size;
+    if (count!==expected) throw new Error(`步行数据不完整（${count}/${expected}）`);
+    return data;
   }
-  for (const [name,x,y,z] of supplementalFires) {
-    const position=new THREE.Vector3(x,y,z);
-    nightAnchors.push({name,position:position.add(new THREE.Vector3(0,.38,0)),radius_m:6,luminous_candela:17});
+
+  async function prepare(root, parent, data, nextWalk, isWild) {
+    const waterline=createWaterline(isWild?null:root,isWild?root:null,parent,time);
+    const batch=await makeBatches(isWild?null:root,isWild?root:null,parent,pigment,water.material,distantWater.material);
+    const fires=isWild ? [
+      ["oven_east",29,.25,48.91,.44,.38],["oven_west",-28,.25,60.92,.44,.38],["oven_pen",-42,.27,54.90,.44,.38],
+      ...[0,1,2,3].map(i=>["ziggurat_brazier_"+i,-24+2.93*Math.cos(i*Math.PI/2),131.31,-356.6-2.93*Math.sin(i*Math.PI/2),.68,.70]),
+    ] : [["oven_courtyard",-39.31,.25,-10.35,.30,.31]];
+    for (const [name,bounds] of batch.flames) {
+      if (name.startsWith("oil_lamp_")&&!bounds.isEmpty()) {
+        data.lights.push({name,position:bounds.getCenter(new THREE.Vector3()),radius_m:4.2,luminous_candela:12,color_hex:"#ffbd79"});
+      }
+    }
+    for (const [name,x,y,z] of fires) {
+      data.lights.push({name,position:new THREE.Vector3(x,y+.38,z),radius_m:6,luminous_candela:17});
+    }
+    const fire=createCityFire(parent,batch.flames,data.lights.filter(a=>a.name.startsWith("light_gate_oil_lamp_")),fires);
+    const motion=animateCity(root,parent,data.sounds,pigment,fire.sparks);
+    data.npcs.push(...addRiversideResidents(parent,nextWalk,isWild));
+    const sprites=await loadSprites(data.npcs,parent,compact,!isWild);
+    batch.detachSourceMeshes();
+    return {batch,waterline,fire,motion,sprites};
   }
-  const fire=createCityFire(scene,batch.flames,nightAnchors.filter(a=>a.name.startsWith("light_gate_oil_lamp_")),supplementalFires);
-  const updateMotion=animateCity(city,scene,soundAnchors,pigment,fire.sparks);
-  npcs.push(...addRiversideResidents(scene,walk));
-  const {avatars,missing}=await loadSprites(npcs,scene);
+
+  function activate(layer,data,nextWalk,count) {
+    walk=nextWalk;
+    walkCount=count;
+    activeRegions=createRegions(walk.boxes,walk.floorPlan);
+    layers.push(layer);
+    npcs.push(...data.npcs);
+    soundAnchors.push(...data.sounds);
+    nightAnchors.push(...data.lights);
+    for (const sprite of layer.sprites.missing) missing.add(sprite);
+  }
+
+  const cityData=survey(city,60);
+  const cityWalk=createWalkWorld(cityData.walks,cityData.solids);
+  const spawn=city.getObjectByName("spawn_exterior_gate_01");
+  if (!spawn) throw new Error("模型缺少主城入口");
+  const cityLayer=await prepare(city,scene,cityData,cityWalk,false);
+  activate(cityLayer,cityData,cityWalk,60);
+  // Reuse the surveyed gate apron until its detailed terrain arrives with the wilds.
+  const apron=new THREE.Group();
+  const sandMaterial=pigment(new THREE.MeshStandardMaterial({name:"sand_floor",color:"#bba171",side:THREE.DoubleSide}));
+  for (const {name,mesh} of cityData.walks) {
+    if (!/^col_walk_(exterior_|gate_.*apron)/.test(name)) continue;
+    const geometry=mesh.geometry.clone().applyMatrix4(mesh.matrixWorld).translate(0,-.032,0);
+    geometry.computeVertexNormals();
+    const ground=new THREE.Mesh(geometry,sandMaterial);
+    ground.receiveShadow=true;
+    apron.add(ground);
+  }
+  scene.add(apron);
+  const avatars=cityLayer.sprites.avatars;
   const [playerContact]=placeContactShadows([{name:"traveler_ground",point:new THREE.Vector3()},...npcs],scene);
   filterTextures(scene,textures,maxAnisotropy);
-  batch.detachSourceMeshes();
   playerContact.visible=false;
+
+  function loadWild(progress) {
+    if (walkCount===142) return Promise.resolve([]);
+    if (pendingWild) return pendingWild;
+    pendingWild=(async()=>{
+      const wild=await loadModel("mesopotamia_wilds.glb",progress);
+      const stage=new THREE.Group();
+      stage.add(wild);
+      const data=survey(wild,82);
+      const nextWalk=createWalkWorld([...cityData.walks,...data.walks],[...cityData.solids,...data.solids]);
+      const layer=await prepare(wild,stage,data,nextWalk,true);
+      placeContactShadows(data.npcs,stage);
+      filterTextures(stage,textures,maxAnisotropy);
+      distantWater.setBoatMask(layer.waterline.boatMask);
+      scene.add(stage);
+      activate(layer,data,nextWalk,142);
+      apron.removeFromParent();
+      for (const ground of apron.children) ground.geometry.dispose();
+      apron.clear();
+      sandMaterial.dispose();
+      lastLampPosition.set(Infinity,0,0);
+      return data.sounds;
+    })().finally(()=>{ pendingWild=null; });
+    return pendingWild;
+  }
+
+  const floor=(...args)=>walk.floor(...args);
+  const occupied=(...args)=>walk.occupied(...args);
+  const blockers=(...args)=>walk.blockers(...args);
   const toCamera=new THREE.Vector3();
   const lightState=createLightState();
   const shadowCenter=new THREE.Vector3(Infinity,0,0);
@@ -444,10 +507,12 @@ export async function createWorld(canvas, onProgress) {
     sky.update(camera, look, time.value);
     water.update(look);
     distantWater.update(look);
-    waterline.update(look.night,camera);
-    updateMotion(time.value, look.night, canvas.clientHeight);
-    fire.update(time.value, look.night, camera);
-    batch.update(camera);
+    for (const {waterline,motion,fire,batch} of layers) {
+      waterline.update(look.night,camera);
+      motion(time.value,look.night,canvas.clientHeight);
+      fire.update(time.value,look.night,camera);
+      batch.update(camera);
+    }
     for (const npc of npcs) {
       toCamera.copy(camera.position).sub(npc.point);
       // Blender's +Y front becomes -Z in glTF. The origin stays at the feet.
@@ -498,7 +563,7 @@ export async function createWorld(canvas, onProgress) {
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     if (!width || !height) return;
-    const pixelRatio=Math.min(window.devicePixelRatio,2);
+    const pixelRatio=Math.min(window.devicePixelRatio,pixelLimit);
     if (renderer.getPixelRatio()!==pixelRatio) {
       renderer.setPixelRatio(pixelRatio);
       composer.setPixelRatio(pixelRatio);
@@ -510,17 +575,17 @@ export async function createWorld(canvas, onProgress) {
   }
   resize();
   window.addEventListener("resize",resize);
-  onProgress(100);
   return {
-    camera,npcs,soundAnchors,regions,floor,occupied,blockers,render,scene,preview,endPreview,
+    camera,npcs,soundAnchors,regions,floor,occupied,blockers,render,scene,preview,endPreview,loadWild,
     spawn:spawn.getWorldPosition(new THREE.Vector3()),
     setTime(value){wantedPhase=THREE.MathUtils.clamp(value,0,2);},
     get timePhase(){return phase;},
     get collisionCandidates(){return walk.candidates;},
     get frameStats(){return {calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,
       pixelRatio:renderer.getPixelRatio(),resolution:[canvas.width,canvas.height],samples,anisotropy:maxAnisotropy,frameMs:frameMean*1000};},
-    counts:{walkSurfaces:walkCount,npcs:npcs.length,sounds:soundAnchors.length,
-      lights:nightAnchors.length,flames:fire.count,drawGroups:batch.drawGroups,missingSprites:[...missing],
-      boatLifts:waterline.boatLifts},
+    get counts(){return {walkSurfaces:walkCount,npcs:npcs.length,sounds:soundAnchors.length,
+      lights:nightAnchors.length,flames:layers.reduce((sum,layer)=>sum+layer.fire.count,0),
+      drawGroups:layers.reduce((sum,layer)=>sum+layer.batch.drawGroups,0),missingSprites:[...missing],
+      boatLifts:layers.flatMap(layer=>layer.waterline.boatLifts)};},
   };
 }

@@ -185,9 +185,9 @@ function microGrain(anisotropy) {
   return texture;
 }
 
-export function makePigments(anisotropy) {
+export function makePigments(anisotropy, compact = false) {
   const surfaces = Object.fromEntries(Object.entries({ clay, stone, sand, cloth, pot, marsh, strata }).map(([kind, finish], index) => {
-    const highResolution = ["stone","sand","marsh","strata"].includes(kind);
+    const highResolution = !compact && ["stone","sand","marsh","strata"].includes(kind);
     const surface = canvas(highResolution ? 2048 : SIZE);
     const random = seeded(42113 + index * 7771);
     const ctx = surface.getContext("2d");

@@ -143,20 +143,10 @@ export function createSoundscape(anchors,regions) {
     return node;
   }
 
-  function setup() {
-    const Context = window.AudioContext ?? window.webkitAudioContext;
-    if (!Context) return;
-    context = new Context();
-    master = context.createGain();
-    master.gain.value = 0;
-    master.connect(context.destination);
-    outdoor=context.createGain();
-    canopyFilter=context.createBiquadFilter();
-    canopyFilter.type='lowpass';
-    canopyFilter.frequency.value=8500;
-    outdoor.connect(canopyFilter).connect(master);
-    const buffers = new Map();
-    for (const anchor of anchors) {
+  const buffers = new Map();
+  function connectAnchors(items) {
+    if (!context) return;
+    for (const anchor of items) {
       const spec = sounds[anchor.sound];
       if (!spec) continue;
       if (!buffers.has(anchor.sound)) buffers.set(anchor.sound, noiseLoop(context, anchor.sound));
@@ -175,6 +165,21 @@ export function createSoundscape(anchors,regions) {
       source.connect(filter).connect(gain).connect(pan).connect(anchor.sound==='wood_fire'?master:outdoor);
       source.start(0, ((anchor.position.x*17+anchor.position.z*7)%source.buffer.duration+source.buffer.duration)%source.buffer.duration);
     }
+  }
+
+  function setup() {
+    const Context = window.AudioContext ?? window.webkitAudioContext;
+    if (!Context) return;
+    context = new Context();
+    master = context.createGain();
+    master.gain.value = 0;
+    master.connect(context.destination);
+    outdoor=context.createGain();
+    canopyFilter=context.createBiquadFilter();
+    canopyFilter.type='lowpass';
+    canopyFilter.frequency.value=8500;
+    outdoor.connect(canopyFilter).connect(master);
+    connectAnchors(anchors);
     for (const [index, track] of westTracks.entries()) {
       if (!buffers.has(track.sound)) buffers.set(track.sound, marketBuffer(context, track.sound));
       const source = context.createBufferSource();
@@ -253,6 +258,6 @@ export function createSoundscape(anchors,regions) {
     landings++;
   }
 
-  return { unlock, toggle, update, land, get running() { return context?.state === "running"; },
+  return { unlock, toggle, update, land, addAnchors: connectAnchors, get running() { return context?.state === "running"; },
     get landings() { return landings; }, get westMix() { return westMix; }, get mix(){return mix.room?{...mix,room:mix.room.cn}:mix;} };
 }

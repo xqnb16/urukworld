@@ -2,7 +2,7 @@
 
 在这个目录运行 `pnpm install --frozen-lockfile` 和 `pnpm dev`，然后打开终端显示的本地地址。运行 `npm run build` 生成 `dist/`，再运行 `pnpm preview` 可检查 `/urukworld/` 下的生产构建。
 
-推送到 `main` 后，GitHub Actions 构建并发布到 GitHub Pages。`public/models/` 存放 Meshopt 压缩后的 GLB 发布版。更新模型时先压缩新的 Blender 导出副本，再替换同名发布文件。站点会在加载时显示两个模型的合计下载进度。
+推送到 `main` 后，GitHub Actions 构建并发布到 GitHub Pages。`public/models/` 存放 Meshopt 压缩后的 GLB 发布版。更新模型时先压缩新的 Blender 导出副本，再替换同名发布文件。入口只下载主城，并显示实时下载量。进入后后台加载旷野，地标就绪后自动启用。
 
 - `WASD` 或方向键行走，按住 `Shift` 奔跑，按 `Space` 跳跃。
 - 点击「踏入乌鲁克」或场景空白处锁定鼠标。直接移动鼠标转向，`Esc` 释放。对话结束后点击场景恢复锁定。

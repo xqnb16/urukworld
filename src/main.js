@@ -29,12 +29,23 @@ const audioButton = byId("audio-toggle");
 const waypoints=byId("landmark-menu");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
-function progress(value) {
-  const previous = Number(progressBar.getAttribute("aria-valuenow"));
-  const next = Math.max(previous, value);
-  progressBar.style.setProperty("--progress", `${next}%`);
-  progressBar.setAttribute("aria-valuenow", next);
-  loadStatus.textContent = next < 90 ? `正在读取城邦 · ${next}%` : `正在准备光影与立绘 · ${next}%`;
+const mb = bytes => `${(bytes / 1e6).toFixed(1)} MB`;
+function progress({loaded,size,preparing}) {
+  const percent = preparing ? 94 : Math.min(90,Math.floor(loaded * 90 / size));
+  progressBar.style.setProperty("--progress", `${percent}%`);
+  progressBar.setAttribute("aria-valuenow", percent);
+  loadStatus.textContent = `${preparing ? "正在准备主城与立绘" : "正在加载乌鲁克主城"} · ${mb(loaded)} / ${mb(size)}`;
+}
+
+function showLoadError(message) {
+  hud.hidden=true;
+  entry.hidden=false;
+  entry.dataset.stage="title";
+  begin.disabled=false;
+  beginLabel.textContent="点击重试";
+  loadStatus.textContent=message;
+  loadStatus.dataset.error="true";
+  begin.addEventListener("click",()=>location.reload(),{once:true});
 }
 
 async function launch() {
@@ -57,6 +68,34 @@ async function launch() {
   const canMove = () => started && !active && !traveling && !waypoints.open;
   const player = createPlayer(world, canvas, canMove, clickOnCharacter, sound.land);
   const profiles = new Map(world.npcs.map((npc) => [npc, characterFor(npc)]));
+  const wildStatus=byId("wild-status");
+  const wildRetry=byId("retry-wild");
+  const wildButtons=Array.from(document.querySelectorAll("#wild-landmarks [data-travel]"));
+  let graphicsLost=false;
+  wildButtons.forEach(button=>{button.disabled=true;});
+  async function startWild() {
+    wildRetry.hidden=true;
+    wildStatus.textContent="旷野加载中…";
+    try {
+      const anchors=await world.loadWild(({loaded,size,preparing})=>{
+        wildStatus.textContent=`${preparing?"正在准备旷野":"旷野加载中…"} ${mb(loaded)} / ${mb(size)}`;
+      });
+      sound.addAnchors(anchors);
+      for (const npc of world.npcs) if (!profiles.has(npc)) profiles.set(npc,characterFor(npc));
+      wildButtons.forEach(button=>{button.disabled=false;});
+      wildStatus.textContent="旷野已就绪";
+    } catch (error) {
+      console.error(error);
+      wildStatus.textContent=`旷野加载失败：${error.message}`;
+      wildRetry.hidden=false;
+    }
+  }
+  wildRetry.addEventListener("click",startWild);
+  canvas.addEventListener("webglcontextlost",()=>{
+    graphicsLost=true;
+    player.releasePointer();
+    showLoadError("显卡中断了画面渲染。请关闭其他占用显卡的页面后重试。");
+  });
 
   function reachable(npc) {
     const { position } = player;
@@ -343,6 +382,7 @@ async function launch() {
     canvas.focus({ preventScroll: true });
     if (event.pointerType !== "touch") player.lockPointer();
     updateNearby();
+    setTimeout(startWild,0);
   });
 
   function updateCompass() {
@@ -359,6 +399,7 @@ async function launch() {
   }
 
   function frame(time) {
+    if (graphicsLost) return;
     const seconds = Math.min(0.085, (time - (lastTime || time)) / 1000);
     lastTime = time;
     if (!started) {
@@ -380,19 +421,16 @@ async function launch() {
     requestAnimationFrame(frame);
   }
 
-  world.preview(performance.now(), reducedMotion.matches);
   function revealTitle() {
     entry.dataset.stage = "title";
     beginLabel.textContent = "踏入乌鲁克";
     loadStatus.textContent = "键盘行走 · 移动鼠标转向";
     entry.querySelector(".entry-content").dataset.ready = "true";
+    progressBar.style.setProperty("--progress","100%");
+    progressBar.setAttribute("aria-valuenow","100");
     begin.disabled = false;
   }
-  if (reducedMotion.matches) revealTitle();
-  else {
-    entry.dataset.stage = "panorama";
-    window.setTimeout(revealTitle, 2200);
-  }
+  revealTitle();
   requestAnimationFrame(frame);
 
   if (import.meta.env.DEV && new URLSearchParams(location.search).has("acceptance")) {
@@ -438,9 +476,5 @@ async function launch() {
 
 launch().catch((error) => {
   console.error(error);
-  begin.disabled = false;
-  beginLabel.textContent = "重新加载";
-  loadStatus.textContent = "城邦未能加载。请检查网络和浏览器的 WebGL 支持，然后重试。";
-  loadStatus.dataset.error = "true";
-  begin.addEventListener("click", () => location.reload(), { once: true });
+  showLoadError(`城邦加载失败：${error.message}`);
 });

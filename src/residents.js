@@ -51,7 +51,7 @@ function put(scene,walk,identity,id,candidates,dimensions=[.95,1.76]) {
   return null;
 }
 
-export function addRiversideResidents(scene,walk) {
+export function addRiversideResidents(scene,walk, isWild = false) {
   const discovered=[
     ["tavernkeeper","tavern", [[-28.78,0,-20.32],[-28.96,0,-20.58],[-28.98,0,-21.50]], [.98,1.68]],
     ["scribe","scribe", [[39.3,0,-2.15],[38.48,0,-1.86],[39.6,0,-2.5]], [.90,1.71]],
@@ -64,7 +64,9 @@ export function addRiversideResidents(scene,walk) {
     ["boatman","quay", [[-.98,.018,-11.8],[-1.04,.018,-12.3],[-.85,.018,-12.45]], [1.20,1.82]],
     ["porter","bridge", [[-13.92,1.1,-6.78],[-14.10,.95,-6.19],[-16.2,.42,-6.18]], [1.10,1.77]],
   ];
-  const result=discovered.map(([role,id,locations,size])=>put(scene,walk,role,"npc_everyday_"+id,locations,size)).filter(Boolean);
+  const result=discovered.filter(([,id])=>/^(fields|east_farm|west_farm|marsh|oasis)$/.test(id)===isWild)
+    .map(([role,id,locations,size])=>put(scene,walk,role,"npc_everyday_"+id,locations,size)).filter(Boolean);
+  if (isWild) return result;
   const older=[
     ["02",-15.92,-7.80,"埃莉","西岸织工","这块布刚从架上取下来。顺着光能看见织进去的八角星。","有染好的蓝布吗？","蓝布得浸染几回，昨天晒好的那匹就在架子下。"],
     ["04",-20.63,-8.98,"阿什","陶作坊学徒","刚烧好的壶碰在一起，最容易磕到壶口。","怎么挑不漏的陶壶？","装满水再放在干泥板上。有水印的壶就得重挑。"],
